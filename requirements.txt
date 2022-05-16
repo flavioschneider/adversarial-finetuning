@@ -1,0 +1,12 @@
+torch==1.10.2
+torchvision==0.11.3
+torchtext==0.11.2
+torchmetrics==0.7.2
+datasets==1.18.3
+tokenizers==0.11.5
+transformers==4.18.0
+pytorch-lightning==1.5.10
+wandb==0.12.14
+rich==12.2.0
+smart-pytorch==0.0.2
+argparse==1.4.0
