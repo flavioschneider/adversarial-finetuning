@@ -11,10 +11,10 @@ from torch.utils.data import Dataset, DataLoader
 from smart_pytorch import SMARTLoss
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--gpus", metavar="-g", type=int, default=0)
-parser.add_argument("--epochs", metavar="-e", type=int, default=20)
-parser.add_argument("--batch-size", metavar="-b", type=int, default=32)
-parser.add_argument("--smart-loss-weight", metavar="-w", type=float, default=1.0)
+parser.add_argument("--gpus", type=int, default=0)
+parser.add_argument("--epochs", type=int, default=20)
+parser.add_argument("--batch-size", type=int, default=32)
+parser.add_argument("--smart-loss-weight", type=float, default=1.0)
 parser.add_argument("--pretrained-model", type=str, default='roberta-base')
 parser.add_argument("--sequence-length", type=int, default=128)
 parser.add_argument("--seed", type=int, default=42)
