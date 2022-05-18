@@ -160,7 +160,7 @@ class SMARTLoss(nn.Module):
             embed_perturbed = embed + noise 
             state_perturbed = self.eval_fn(embed_perturbed)
             # Return final loss if last step (undetached state)
-            if i == self.num_steps + 1: 
+            if i == self.num_steps: 
                 return self.loss_last_fn(state_perturbed, state) 
             # Compute perturbation loss (detached state)
             loss = self.loss_fn(state_perturbed, state.detach())
@@ -181,7 +181,7 @@ def kl_loss(input, target, reduction='batchmean'):
         reduction=reduction,
     )
 
-def sym_kl_loss(input, target, reduction='sum'):
+def sym_kl_loss(input, target, reduction='mean'):
     return F.kl_div(
         F.log_softmax(input, dim=-1),
         F.softmax(target.detach(), dim=-1),
