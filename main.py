@@ -8,7 +8,7 @@ from torchmetrics import MetricCollection, Accuracy, F1Score
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Adafactor
 from datasets import load_dataset
 from torch.utils.data import Dataset, DataLoader
-from smart_pytorch import SMARTLoss
+#from smart_pytorch import SMARTLoss
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gpus", type=int, default=0)
@@ -107,17 +107,85 @@ class MCTACODatamodule(pl.LightningDataModule):
             shuffle=False,
         )
 
-"""
-def kl_loss(s_p, s):
-    # s_p: perturbed state, s: initial state 
-    s_p = F.log_softmax(s_p, dim=1) # (b, n)
-    s = F.log_softmax(s, dim=1) # (b, n)
-    l0 = F.kl_div(s_p, s, reduction = 'sum', log_target=True)
-    l1 = F.kl_div(s, s_p, reduction = 'sum', log_target=True)
-    return l0 + l1
-"""
 
-def kl_loss(input, target, reduction='sum'):
+
+from typing import List, Union, Callable
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch import Tensor
+from itertools import count 
+
+def inf_norm(x):
+    return torch.norm(x, p=float('inf'), dim=-1, keepdim=True)
+
+def exists(val):
+    return val is not None
+
+def default(val, d):
+    if exists(val):
+        return val
+    return d() if isfunction(d) else d
+
+class SMARTLoss(nn.Module):
+    
+    def __init__(
+        self,
+        eval_fn: Callable,
+        loss_fn: Callable,
+        loss_last_fn: Callable = None, 
+        norm_fn: Callable = inf_norm, 
+        num_steps: int = 1,
+        step_size: float = 1e-3, 
+        epsilon: float = 1e-6,
+        noise_var: float = 1e-5
+    ) -> None:
+        super().__init__()
+        self.eval_fn = eval_fn 
+        self.loss_fn = loss_fn
+        self.loss_last_fn = default(loss_last_fn, loss_fn)
+        self.norm_fn = norm_fn
+        self.num_steps = num_steps 
+        self.step_size = step_size
+        self.epsilon = epsilon 
+        self.noise_var = noise_var
+        
+    def forward(self, embed: Tensor, state: Union[Tensor, List[Tensor]]) -> Tensor:
+        noise = torch.randn_like(embed, requires_grad=True) * self.noise_var
+
+        # Indefinite loop with counter 
+        for i in count():
+            # Compute perturbed embed and states 
+            embed_perturbed = embed + noise 
+            state_perturbed = self.eval_fn(embed_perturbed)
+            # Return final loss if last step (undetached state)
+            if i == self.num_steps + 1: 
+                return self.loss_last_fn(state_perturbed, state) 
+            # Compute perturbation loss (detached state)
+            loss = self.loss_fn(state_perturbed, state.detach())
+            # Compute noise gradient ∂loss/∂noise
+            noise_gradient = torch.autograd.grad(loss, noise, only_inputs=True, retain_graph=False)[0]
+            # Move noise towards gradient to change state as much as possible 
+            step = noise + self.step_size * noise_gradient 
+            # Normalize new noise step into norm induced ball 
+            step_norm = self.norm_fn(step)
+            noise = step / (step_norm + self.epsilon)
+            # Reset noise gradients for next step
+            noise = noise.detach().requires_grad_()
+
+
+def stable_kl_loss(logit, target, epsilon=1e-6, reduce=True):
+    logit = logit.view(-1, logit.size(-1)).float()
+    target = target.view(-1, target.size(-1)).float()
+    bs = logit.size(0)
+    p = F.log_softmax(logit, 1).exp()
+    y = F.log_softmax(target, 1).exp()
+    rp = -(1.0 / (p + epsilon) - 1 + epsilon).detach().log()
+    ry = -(1.0 / (y + epsilon) - 1 + epsilon).detach().log()
+    return (p * (rp - ry) * 2).sum()
+
+def sym_kl_loss(input, target, reduction='batchmean'):
     return F.kl_div(
         F.log_softmax(input, dim=-1),
         F.softmax(target.detach(), dim=-1),
@@ -151,7 +219,7 @@ class SMARTClassificationModel(nn.Module):
         def norm(x):
             return torch.norm(x, p=float('inf'), dim=-1, keepdim=True) / self.radius
 
-        smart_loss_fn = SMARTLoss(eval_fn = eval, loss_fn = kl_loss, norm_fn = norm)
+        smart_loss_fn = SMARTLoss(eval_fn = eval, loss_fn = stable_kl_loss, loss_last_fn = sym_kl_loss, norm_fn = norm)
         state = eval(embed)
         loss = F.cross_entropy(state.view(-1, 2), labels.view(-1))
         smart_loss = torch.tensor(0)
