@@ -219,7 +219,7 @@ class SMARTClassificationModel(nn.Module):
         state = eval(embed)
         loss = F.cross_entropy(state.view(-1, 2), labels.view(-1))
         smart_loss = torch.tensor(0)
-        if embed.requires_grad:
+        if embed.requires_grad and self.weight > 0:
             smart_loss = smart_loss_fn(embed, state)
             loss += self.weight * smart_loss
        
