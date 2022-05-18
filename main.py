@@ -15,6 +15,7 @@ parser.add_argument("--gpus", type=int, default=0)
 parser.add_argument("--epochs", type=int, default=20)
 parser.add_argument("--batch-size", type=int, default=32)
 parser.add_argument("--smart-loss-weight", type=float, default=1.0)
+parser.add_argument("--smart-loss-radius", type=float, default=1.0)
 parser.add_argument("--pretrained-model", type=str, default='roberta-base')
 parser.add_argument("--sequence-length", type=int, default=128)
 parser.add_argument("--seed", type=int, default=42)
@@ -106,7 +107,6 @@ class MCTACODatamodule(pl.LightningDataModule):
             shuffle=False,
         )
 
-
 """
 def kl_loss(s_p, s):
     # s_p: perturbed state, s: initial state 
@@ -131,10 +131,11 @@ def kl_loss(input, target, reduction='sum'):
 class SMARTClassificationModel(nn.Module):
     # b: batch_size, s: sequence_length, d: hidden_size , n: num_labels
 
-    def __init__(self, model, weight):
+    def __init__(self, model, weight, radius):
         super().__init__()
         self.model = model 
         self.weight = weight
+        self.radius = radius 
 
     def forward(self, input_ids, attention_mask, labels):
         # input_ids: (b, s), attention_mask: (b, s), labels: (b,)
@@ -147,7 +148,10 @@ class SMARTClassificationModel(nn.Module):
             logits = self.model.classifier(pooled) # (b, n)
             return logits 
 
-        smart_loss_fn = SMARTLoss(eval_fn = eval, loss_fn = kl_loss)
+        def norm(x):
+            return torch.norm(x, p=float('inf'), dim=-1, keepdim=True) / self.radius
+
+        smart_loss_fn = SMARTLoss(eval_fn = eval, loss_fn = kl_loss, norm_fn = norm)
         state = eval(embed)
         loss = F.cross_entropy(state.view(-1, 2), labels.view(-1))
         smart_loss = torch.tensor(0)
@@ -203,7 +207,7 @@ architecture = AutoModelForSequenceClassification.from_pretrained(args.pretraine
 datamodule = MCTACODatamodule(tokenizer, batch_size = args.batch_size, sequence_length = args.sequence_length) 
 datamodule.setup()      
 
-smart_architecture = SMARTClassificationModel(architecture, weight=args.smart_loss_weight)
+smart_architecture = SMARTClassificationModel(architecture, weight=args.smart_loss_weight, radius=args.smart_loss_radius)
 model = TextClassificationModel(smart_architecture)
 # input_ids, input_mask, labels = next(iter(datamodule.train_dataloader()))   
 # output, loss = smart_architecture(input_ids, input_mask, labels)
