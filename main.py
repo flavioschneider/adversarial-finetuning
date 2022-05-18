@@ -181,7 +181,7 @@ def kl_loss(input, target, reduction='batchmean'):
         reduction=reduction,
     )
 
-def sym_kl_loss(input, target, reduction='mean'):
+def sym_kl_loss(input, target, reduction='sum'):
     return F.kl_div(
         F.log_softmax(input, dim=-1),
         F.softmax(target.detach(), dim=-1),
