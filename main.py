@@ -165,7 +165,7 @@ class SMARTLoss(nn.Module):
             # Compute perturbation loss (detached state)
             loss = self.loss_fn(state_perturbed, state.detach())
             # Compute noise gradient ∂loss/∂noise
-            noise_gradient = torch.autograd.grad(loss, noise, only_inputs=True, retain_graph=False)[0]
+            noise_gradient, = torch.autograd.grad(loss, noise)
             # Move noise towards gradient to change state as much as possible 
             step = noise + self.step_size * noise_gradient 
             # Normalize new noise step into norm induced ball 
@@ -174,18 +174,14 @@ class SMARTLoss(nn.Module):
             # Reset noise gradients for next step
             noise = noise.detach().requires_grad_()
 
+def kl_loss(input, target, reduction='batchmean'):
+    return F.kl_div(
+        F.log_softmax(input, dim=-1),
+        F.softmax(target, dim=-1),
+        reduction=reduction,
+    )
 
-def stable_kl_loss(logit, target, epsilon=1e-6, reduce=True):
-    logit = logit.view(-1, logit.size(-1)).float()
-    target = target.view(-1, target.size(-1)).float()
-    bs = logit.size(0)
-    p = F.log_softmax(logit, 1).exp()
-    y = F.log_softmax(target, 1).exp()
-    rp = -(1.0 / (p + epsilon) - 1 + epsilon).detach().log()
-    ry = -(1.0 / (y + epsilon) - 1 + epsilon).detach().log()
-    return (p * (rp - ry) * 2).sum()
-
-def sym_kl_loss(input, target, reduction='batchmean'):
+def sym_kl_loss(input, target, reduction='sum'):
     return F.kl_div(
         F.log_softmax(input, dim=-1),
         F.softmax(target.detach(), dim=-1),
@@ -219,7 +215,7 @@ class SMARTClassificationModel(nn.Module):
         def norm(x):
             return torch.norm(x, p=float('inf'), dim=-1, keepdim=True) / self.radius
 
-        smart_loss_fn = SMARTLoss(eval_fn = eval, loss_fn = stable_kl_loss, loss_last_fn = sym_kl_loss, norm_fn = norm)
+        smart_loss_fn = SMARTLoss(eval_fn = eval, loss_fn = kl_loss, loss_last_fn = sym_kl_loss, norm_fn = norm)
         state = eval(embed)
         loss = F.cross_entropy(state.view(-1, 2), labels.view(-1))
         smart_loss = torch.tensor(0)
