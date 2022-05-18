@@ -229,16 +229,18 @@ class SMARTClassificationModel(nn.Module):
 class TextClassificationModel(pl.LightningModule):
     def __init__(
         self,
-        model: nn.Module
+        model: nn.Module,
+        lr: float = 3e-5
     ):
         super().__init__()
         self.model = model
+        self.lr = lr 
         metrics = MetricCollection([ Accuracy(), F1Score() ])
         self.train_metrics = metrics.clone(prefix='train_')
         self.valid_metrics = metrics.clone(prefix='val_')
 
     def configure_optimizers(self):
-        optimizer = Adafactor(self.model.parameters(), warmup_init=True)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr)
         return optimizer
 
     def training_step(self, batch, batch_idx):
