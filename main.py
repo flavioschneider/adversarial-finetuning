@@ -181,8 +181,8 @@ def kl_loss(input, target, reduction='batchmean'):
         reduction=reduction,
     )
 
-def sym_kl_loss(input, target, reduction='sum'):
-    return F.kl_div(
+def sym_kl_loss(input, target, reduction='sum', alpha=1.0):
+    return alpha * F.kl_div(
         F.log_softmax(input, dim=-1),
         F.softmax(target.detach(), dim=-1),
         reduction=reduction,
@@ -191,6 +191,18 @@ def sym_kl_loss(input, target, reduction='sum'):
         F.softmax(input.detach(), dim=-1),
         reduction=reduction,
     )
+
+def js_loss(input, target, reduction='sum', alpha=1.0):
+    mean_proba = 0.5 * (F.softmax(input.detach(), dim=-1) + F.softmax(target.detach(), dim=-1))
+    return alpha * (F.kl_div(
+        F.log_softmax(input, dim=-1), 
+        mean_proba, 
+        reduction=reduction
+    ) + F.kl_div(
+        F.log_softmax(target, dim=-1), 
+        mean_proba, 
+        reduction=reduction
+    ))
 
 class SMARTClassificationModel(nn.Module):
     # b: batch_size, s: sequence_length, d: hidden_size , n: num_labels
@@ -215,7 +227,7 @@ class SMARTClassificationModel(nn.Module):
         def norm(x):
             return torch.norm(x, p=float('inf'), dim=-1, keepdim=True) / self.radius
 
-        smart_loss_fn = SMARTLoss(eval_fn = eval, loss_fn = kl_loss, loss_last_fn = sym_kl_loss, norm_fn = norm)
+        smart_loss_fn = SMARTLoss(eval_fn = eval, loss_fn = kl_loss, loss_last_fn = js_loss, norm_fn = norm)
         state = eval(embed)
         loss = F.cross_entropy(state.view(-1, 2), labels.view(-1))
         smart_loss = torch.tensor(0)
